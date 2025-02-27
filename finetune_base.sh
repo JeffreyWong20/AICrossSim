@@ -11,6 +11,7 @@ export WANDB_DISABLED=true
 
 function finetune(){
     TASK_NAME=$1
+    export RUN_NAME="ft_"$TASK_NAME
 
     python -u -m torch.distributed.launch --master_port=14400 --nproc_per_node=1 --nnodes=1 --node_rank=0 --use_env \
         run_glue.py \
