@@ -1,0 +1,7 @@
+git+https://github.com/huggingface/transformers
+transformers[torch]
+datasets
+evaluate
+wandb
+scipy
+scikit-learn>=0.24.1
