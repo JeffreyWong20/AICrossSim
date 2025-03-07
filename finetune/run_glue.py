@@ -626,6 +626,7 @@ def main():
                             item = label_list[item]
                             writer.write(f"{index}\t{item}\n")
 
+    # kwargs = {"model_name": "roberta-base-relu-mnli", "finetuned_from": "JeremiahZ/roberta-base-mnli", "tasks": "text-classification"}
     kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text-classification"}
     if data_args.task_name is not None:
         kwargs["language"] = "en"
