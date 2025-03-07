@@ -8,23 +8,24 @@ export DATA_CACHE_DIR="/data/datasets"
 # Output_dir of the finetuned model
 export prefix="/home/thw20/projects/AICrossSim"
 
-# Training parameters
-export BATCH_SIZE=16
-# export LR=2e-5
-export LR_LIST="1e-5 2e-5 3e-5"
-
-# Model name for the pre-trained model
+# Mpdel config 
 export TRAINING_DISABLE=false
 export USE_RELU=true
-# export MODEL_NAME="/home/thw20/projects/AICrossSim/ckpt/roberta/finetune/mrpc/checkpoint-2300"
-# export MODEL_NAME="JeremiahZ/roberta-base-mrpc"
+
+# Training parameters
+export BATCH_SIZE=16
 
 # single task
-export USE_SINGLE_TASK=false
-export TASK_NAME="mrpc"
-export TASK_LIST="cola stsb rte sst2 qqp "
-# export TASK_LIST="cola mrpc stsb rte sst2 qqp qnli mnli"
+export USE_SINGLE_TASK=true
+export TASK_NAME="cola"
+export LR=3e-5
 
+# multi-task
+export TASK_LIST="cola stsb rte sst2 qqp"
+export LR_LIST="1e-5 2e-5 3e-5"
+
+# push to hub
+export PUSH_TO_HUB=false
 # =================================================================================================
 
 function finetune(){
@@ -63,6 +64,24 @@ function finetune(){
             # --report_to wandb \
             # --run_name $RUN_NAME \
             # --wandb-tags "$TASK_NAME"
+    elif [ "$PUSH_TO_HUB" = true ]; then
+            python -u -m torch.distributed.launch --master_port=20000 --nproc_per_node=1 --nnodes=1 --node_rank=0 --use_env \
+                finetune/run_glue_push_to_hub.py \
+                --seed 42 \
+                --model_name_or_path $MODEL_NAME \
+                --config_name $MODEL_CONFIG_PATH \
+                --task_name $TASK_NAME \
+                --save_strategy no \
+                --cache_dir $CACHE_DIR \
+                --data_cache_dir $DATA_CACHE_DIR \
+                --do_eval \
+                --fp16 \
+                --ddp_timeout 180000 \
+                --max_seq_length 512 \
+                --per_device_eval_batch_size 4 \
+                --output_dir $OUTPUT_DIR \
+                --overwrite_output_dir \
+                --push_to_hub
     else
         python -u -m torch.distributed.launch --master_port=14400 --nproc_per_node=1 --nnodes=1 --node_rank=0 --use_env \
             finetune/run_glue.py \
@@ -95,7 +114,12 @@ fi
 
 if [ "$USE_SINGLE_TASK" = true ]; then
     echo "Single task finetuning"
-    export OUTPUT_DIR=${prefix}"/ckpt/roberta/finetune/"$TASK_NAME"/lr_"$LR
+    if [ "$PUSH_TO_HUB" = true ]; then
+        export OUTPUT_DIR=${prefix}"/ckpt/roberta/finetune/"$TASK_NAME"/roberta-base-relu-"$TASK_NAME
+    else
+        export OUTPUT_DIR=${prefix}"/ckpt/roberta/finetune/"$TASK_NAME"/lr_"$LR
+    fi
+    export MODEL_NAME="JeremiahZ/roberta-base-"$TASK_NAME
     echo "Finetuning on "$task" with LR="$LR" and output_dir="$OUTPUT_DIR" and model_name="$MODEL_NAME
 
 
