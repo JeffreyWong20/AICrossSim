@@ -6,9 +6,11 @@ import math
 import evaluate
 
 use_checkpoint = False
-model_name = "yanaiela/roberta-base-epoch_5"
-sample_size = None
-eval_batch_size = 128+32
+model_name = "yanaiela/roberta-base-epoch_2"
+ckpt_path = "/home/thw20/projects/Simple-BERT-RoBERTa-Pretrain/ckpt/roberta/pretrain/base/checkpoint-4146"
+# ckpt_path = "/data/models/thw20/aixsim/ckpt/roberta/pretrain/base/checkpoint-30000"
+sample_size = 12800
+eval_batch_size = 32
 
 
 import os
@@ -16,7 +18,6 @@ torch.cuda.set_device(int(os.environ["RANK"]))
 torch.cuda.empty_cache()
 
 if use_checkpoint:
-    ckpt_path = "/data/models/thw20/aixsim/ckpt/roberta/pretrain/base/checkpoint-30000"
     tokenizer = AutoTokenizer.from_pretrained(ckpt_path)
     model = AutoModelForMaskedLM.from_pretrained(
         ckpt_path,
