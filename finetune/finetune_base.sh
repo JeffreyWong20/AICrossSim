@@ -64,7 +64,7 @@ function finetune(){
             --report_to wandb \
             --run_name $RUN_NAME \
             --wandb-tags "$TASK_NAME relu $LR spikezip"  \
-            --use_mase $USE_MASE
+            --use_mase $USE_MASE    \
             --overwrite_output_dir
             # Uncomment the following lines to enable wandb logging
             # --report_to wandb \

@@ -450,8 +450,10 @@ def main():
     if model_args.use_mase == 1:
         model, _ = quantize_module_transform_pass(model, quan_pass_args)
         # load model.pt from the model_path
-        if os.path.exists(os.path.join(model_args.model_name_or_path, "model.pt")):
-            model.load_state_dict(torch.load(os.path.join(model_args.model_name_or_path, "model.pt")))
+        from safetensors.torch import load_file
+        if os.path.exists(os.path.join(model_args.model_name_or_path, "model.safetensors")):
+            state_dict = load_file(os.path.join(model_args.model_name_or_path, "model.safetensors"))
+            model.load_state_dict(state_dict)
         
     # ===========================================================
     # =================== MASE Transformation ===================
@@ -613,9 +615,6 @@ def main():
         metrics["train_samples"] = min(max_train_samples, len(train_dataset))
 
         trainer.save_model()  # Saves the tokenizer too for easy upload
-
-        if trainer.is_world_process_zero():
-            torch.save(trainer.model.state_dict(), os.path.join(training_args.output_dir, "model.pt"))
 
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
