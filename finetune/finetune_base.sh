@@ -9,7 +9,9 @@ export DATA_CACHE_DIR="/data/datasets"
 export prefix="/home/thw20/projects/AICrossSim"
 
 # Mpdel config 
-export TRAINING_DISABLE=false
+# export MODEL_NAME_PREFIX="JeremiahZ/roberta-base-"
+export MODEL_NAME_PREFIX="JeffreyWong/roberta-base-relu-"
+export TRAINING_DISABLE=true
 export USE_RELU=true
 
 # Training parameters
@@ -17,8 +19,11 @@ export BATCH_SIZE=16
 
 # single task
 export USE_SINGLE_TASK=true
-export TASK_NAME="cola"
-export LR=3e-5
+export USE_CKPT=true
+export USE_MASE=1
+export MODEL_CHPT_PATH="/home/thw20/projects/AICrossSim/ckpt/roberta/finetune/mrpc/lr_1e-5"
+export TASK_NAME="mrpc"
+export LR=1e-5
 
 # multi-task
 export TASK_LIST="cola stsb rte sst2 qqp"
@@ -34,7 +39,7 @@ function finetune(){
 
     if [ "$TRAINING_DISABLE" = false ]; then
         python -u -m torch.distributed.launch --master_port=14400 --nproc_per_node=1 --nnodes=1 --node_rank=0 --use_env \
-            finetune/run_glue.py \
+        finetune/run_glue.py \
             --seed 42 \
             --model_name_or_path $MODEL_NAME \
             --config_name $MODEL_CONFIG_PATH \
@@ -58,7 +63,8 @@ function finetune(){
             --output_dir $OUTPUT_DIR \
             --report_to wandb \
             --run_name $RUN_NAME \
-            --wandb-tags "$TASK_NAME relu $LR"  \
+            --wandb-tags "$TASK_NAME relu $LR spikezip"  \
+            --use_mase $USE_MASE
             --overwrite_output_dir
             # Uncomment the following lines to enable wandb logging
             # --report_to wandb \
@@ -81,6 +87,7 @@ function finetune(){
                 --per_device_eval_batch_size 4 \
                 --output_dir $OUTPUT_DIR \
                 --overwrite_output_dir \
+                --use_mase $USE_MASE \
                 --push_to_hub
     else
         python -u -m torch.distributed.launch --master_port=14400 --nproc_per_node=1 --nnodes=1 --node_rank=0 --use_env \
@@ -98,6 +105,7 @@ function finetune(){
             --max_seq_length 512 \
             --per_device_eval_batch_size 4 \
             --output_dir $OUTPUT_DIR \
+            --use_mase $USE_MASE \
             --overwrite_output_dir
     fi
 }
@@ -119,8 +127,14 @@ if [ "$USE_SINGLE_TASK" = true ]; then
     else
         export OUTPUT_DIR=${prefix}"/ckpt/roberta/finetune/"$TASK_NAME"/lr_"$LR
     fi
-    export MODEL_NAME="JeremiahZ/roberta-base-"$TASK_NAME
-    echo "Finetuning on "$task" with LR="$LR" and output_dir="$OUTPUT_DIR" and model_name="$MODEL_NAME
+
+    if [ "$USE_CKPT" = true ]; then
+        export MODEL_NAME=$MODEL_CHPT_PATH
+    else
+        export MODEL_NAME=$MODEL_NAME_PREFIX$TASK_NAME
+    fi
+    echo $MODEL_NAME
+    echo "Finetuning on "$TASK_NAME" with LR="$LR" and output_dir="$OUTPUT_DIR" and model_name="$MODEL_NAME
 
 
     if [ $TASK_NAME = "mnli" ]; then
@@ -146,31 +160,31 @@ else
     echo "Multi-task finetuning"
     for LR in $LR_LIST
     do
-        for task in $TASK_LIST
+        for TASK_NAME in $TASK_LIST
         do
-            export OUTPUT_DIR=${prefix}"/ckpt/roberta/finetune/"$task"/lr_"$LR
-            export MODEL_NAME="JeremiahZ/roberta-base-"$task
-            echo "Finetuning on "$task" with LR="$LR" and output_dir="$OUTPUT_DIR" and model_name="$MODEL_NAME
+            export OUTPUT_DIR=${prefix}"/ckpt/roberta/finetune/"$TASK_NAME"/lr_"$LR
+            export MODEL_NAME=$MODEL_NAME_PREFIX$TASK_NAME
+            echo "Finetuning on "$TASK_NAME" with LR="$LR" and output_dir="$OUTPUT_DIR" and model_name="$MODEL_NAME
 
-            if [ $task = "mnli" ]; then
+            if [ $TASK_NAME = "mnli" ]; then
                 export BEST_METRIC="accuracy"
-            elif [ $task = "mrpc" ]; then
+            elif [ $TASK_NAME = "mrpc" ]; then
                 export BEST_METRIC="accuracy"
-            elif [ $task = "sst2" ]; then
+            elif [ $TASK_NAME = "sst2" ]; then
                 export BEST_METRIC="accuracy"
-            elif [ $task = "cola" ]; then
+            elif [ $TASK_NAME = "cola" ]; then
                 export BEST_METRIC="matthews_correlation"
-            elif [ $task = "stsb" ]; then
+            elif [ $TASK_NAME = "stsb" ]; then
                 export BEST_METRIC="spearmanr"
-            elif [ $task = "rte" ]; then
+            elif [ $TASK_NAME = "rte" ]; then
                 export BEST_METRIC="accuracy"
-            elif [ $task = "qnli" ]; then
+            elif [ $TASK_NAME = "qnli" ]; then
                 export BEST_METRIC="accuracy"
-            elif [ $task = "qqp" ]; then
+            elif [ $TASK_NAME = "qqp" ]; then
                 export BEST_METRIC="accuracy"
             fi
 
-            finetune $task
+            finetune $TASK_NAME
         done
     done
 fi

@@ -47,6 +47,7 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
 import wandb
+import torch
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.50.0.dev0")
 
@@ -218,7 +219,10 @@ class ModelArguments:
         default=None,
         metadata={"help": "Tags to add to the W&B run."}
     )
-
+    use_mase: int = field(
+        default=0,
+        metadata={"help": "Whether to use MASE transformation or not."}
+    )
 
 def main():
     # See all possible arguments in src/transformers/training_args.py
@@ -405,6 +409,54 @@ def main():
         ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
     )
 
+    # ===========================================================
+    # =================== MASE Transformation ===================
+    # ===========================================================
+    from chop.passes.module.transforms.quantize.quantize import quantize_module_transform_pass
+    quan_pass_args = {
+        "by": "regex_name",
+        "roberta\.encoder\.layer\.\d+\.attention\.self": {
+            "config": {
+                "name": "lsqinteger",
+                "level": 32,
+            }
+        },
+        "roberta\.encoder\.layer\.\d+\.attention\.output": {
+            "config": {
+                "name": "lsqinteger",
+                "level": 32,
+            }
+        },
+        "roberta\.encoder\.layer\.\d+\.output": {
+            "config": {
+                "name": "lsqinteger",
+                "level": 32,
+            }
+        },
+        "roberta\.encoder\.layer\.\d+\.intermediate": {
+            "config": {
+                "name": "lsqinteger",
+                "level": 32,
+            }
+        },
+        "classifier": {
+            "config": {
+                "name": "lsqinteger",
+                "level": 32,
+            }
+        },
+    }
+
+    if model_args.use_mase == 1:
+        model, _ = quantize_module_transform_pass(model, quan_pass_args)
+        # load model.pt from the model_path
+        if os.path.exists(os.path.join(model_args.model_name_or_path, "model.pt")):
+            model.load_state_dict(torch.load(os.path.join(model_args.model_name_or_path, "model.pt")))
+        
+    # ===========================================================
+    # =================== MASE Transformation ===================
+    # ===========================================================
+
     # Preprocessing the raw_datasets
     if data_args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[data_args.task_name]
@@ -561,6 +613,9 @@ def main():
         metrics["train_samples"] = min(max_train_samples, len(train_dataset))
 
         trainer.save_model()  # Saves the tokenizer too for easy upload
+
+        if trainer.is_world_process_zero():
+            torch.save(trainer.model.state_dict(), os.path.join(training_args.output_dir, "model.pt"))
 
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
