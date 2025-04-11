@@ -43,6 +43,13 @@ python3 -m pip install -e . -vvv
 sh new_compute_bench.sh
 ```
 
+Different transformation passes may require different configuration, evaluation code. To manage this, I’ve created a file called `access_mase.py` that stores both the transformation configuration and evaluation code.
+
+Here’s how it works:
+1. After completing a transformation in the MASE codebase, save the model weights as a `state_dict` and store the transformation configuration in `access_mase.py`. You might not need to do weight loading if your transformation is targetting the original model.
+2. In `run_glue_no_trainer_mase.py`, locate the relevant `FIXME` section and update it with your own 'weight loading', 'transformation pass and configuration', and 'evaluation code'."
+
+
 ## Q&A
 
 I encountered "../scipy/meson.build:216:9: ERROR: Dependency "OpenBLAS" not found, tried pkgconfig and cmake" when installing MASE
