@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# coding=utf-8
 # Copyright 2020 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,10 +45,9 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-import wandb
-import torch
+
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.50.0.dev0")
+check_min_version("4.52.0.dev0")
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/text-classification/requirements.txt")
 
@@ -143,9 +141,6 @@ class DataTrainingArguments:
         default=None, metadata={"help": "A csv or a json file containing the validation data."}
     )
     test_file: Optional[str] = field(default=None, metadata={"help": "A csv or a json file containing the test data."})
-    data_cache_dir: Optional[str] = field(
-        default=None, metadata={"help": "The directory to store the data cache files."}
-    )
 
     def __post_init__(self):
         if self.task_name is not None:
@@ -160,9 +155,9 @@ class DataTrainingArguments:
             train_extension = self.train_file.split(".")[-1]
             assert train_extension in ["csv", "json"], "`train_file` should be a csv or a json file."
             validation_extension = self.validation_file.split(".")[-1]
-            assert (
-                validation_extension == train_extension
-            ), "`validation_file` should have the same extension (csv or json) as `train_file`."
+            assert validation_extension == train_extension, (
+                "`validation_file` should have the same extension (csv or json) as `train_file`."
+            )
 
 
 @dataclass
@@ -183,6 +178,10 @@ class ModelArguments:
     cache_dir: Optional[str] = field(
         default=None,
         metadata={"help": "Where do you want to store the pretrained models downloaded from huggingface.co"},
+    )
+    data_cache_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "Where do you want to store the datasets downloaded from huggingface.co"},
     )
     use_fast_tokenizer: bool = field(
         default=True,
@@ -215,14 +214,7 @@ class ModelArguments:
         default=False,
         metadata={"help": "Will enable to load a pretrained model whose head dimensions are different."},
     )
-    wandb_tags: Optional[str] = field(
-        default=None,
-        metadata={"help": "Tags to add to the W&B run."}
-    )
-    use_mase: int = field(
-        default=0,
-        metadata={"help": "Whether to use MASE transformation or not."}
-    )
+
 
 def main():
     # See all possible arguments in src/transformers/training_args.py
@@ -258,10 +250,6 @@ def main():
     transformers.utils.logging.set_verbosity(log_level)
     transformers.utils.logging.enable_default_handler()
     transformers.utils.logging.enable_explicit_format()
-
-    if training_args.report_to == ["wandb"]:
-        runs = wandb.init(project="roberta-finetune", name=training_args.run_name, tags=model_args.wandb_tags.split(' '))
-
 
     # Log on each process the small summary:
     logger.warning(
@@ -305,7 +293,7 @@ def main():
         raw_datasets = load_dataset(
             "nyu-mll/glue",
             data_args.task_name,
-            cache_dir=data_args.data_cache_dir,
+            cache_dir=model_args.data_cache_dir,
             token=model_args.token,
         )
     elif data_args.dataset_name is not None:
@@ -313,7 +301,7 @@ def main():
         raw_datasets = load_dataset(
             data_args.dataset_name,
             data_args.dataset_config_name,
-            cache_dir=data_args.data_cache_dir,
+            cache_dir=model_args.data_cache_dir,
             token=model_args.token,
             trust_remote_code=model_args.trust_remote_code,
         )
@@ -328,9 +316,9 @@ def main():
             if data_args.test_file is not None:
                 train_extension = data_args.train_file.split(".")[-1]
                 test_extension = data_args.test_file.split(".")[-1]
-                assert (
-                    test_extension == train_extension
-                ), "`test_file` should have the same extension (csv or json) as `train_file`."
+                assert test_extension == train_extension, (
+                    "`test_file` should have the same extension (csv or json) as `train_file`."
+                )
                 data_files["test"] = data_args.test_file
             else:
                 raise ValueError("Need either a GLUE task or a test file for `do_predict`.")
@@ -343,7 +331,7 @@ def main():
             raw_datasets = load_dataset(
                 "csv",
                 data_files=data_files,
-                cache_dir=data_args.data_cache_dir,
+                cache_dir=model_args.data_cache_dir,
                 token=model_args.token,
             )
         else:
@@ -351,7 +339,7 @@ def main():
             raw_datasets = load_dataset(
                 "json",
                 data_files=data_files,
-                cache_dir=data_args.data_cache_dir,
+                cache_dir=model_args.data_cache_dir,
                 token=model_args.token,
             )
     # See more about loading any type of standard or custom dataset at
@@ -408,56 +396,6 @@ def main():
         trust_remote_code=model_args.trust_remote_code,
         ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
     )
-
-    # ===========================================================
-    # =================== MASE Transformation ===================
-    # ===========================================================
-    from chop.passes.module.transforms.quantize.quantize import quantize_module_transform_pass
-    quan_pass_args = {
-        "by": "regex_name",
-        "roberta\.encoder\.layer\.\d+\.attention\.self": {
-            "config": {
-                "name": "lsqinteger",
-                "level": 32,
-            }
-        },
-        "roberta\.encoder\.layer\.\d+\.attention\.output": {
-            "config": {
-                "name": "lsqinteger",
-                "level": 32,
-            }
-        },
-        "roberta\.encoder\.layer\.\d+\.output": {
-            "config": {
-                "name": "lsqinteger",
-                "level": 32,
-            }
-        },
-        "roberta\.encoder\.layer\.\d+\.intermediate": {
-            "config": {
-                "name": "lsqinteger",
-                "level": 32,
-            }
-        },
-        "classifier": {
-            "config": {
-                "name": "lsqinteger",
-                "level": 32,
-            }
-        },
-    }
-
-    if model_args.use_mase == 1:
-        model, _ = quantize_module_transform_pass(model, quan_pass_args)
-        # load model.pt from the model_path
-        from safetensors.torch import load_file
-        if os.path.exists(os.path.join(model_args.model_name_or_path, "model.safetensors")):
-            state_dict = load_file(os.path.join(model_args.model_name_or_path, "model.safetensors"))
-            model.load_state_dict(state_dict)
-        
-    # ===========================================================
-    # =================== MASE Transformation ===================
-    # ===========================================================
 
     # Preprocessing the raw_datasets
     if data_args.task_name is not None:
@@ -564,11 +502,11 @@ def main():
 
     # Get the metric function
     if data_args.task_name is not None:
-        metric = evaluate.load("glue", data_args.task_name, cache_dir=model_args.cache_dir)
+        metric = evaluate.load("glue", data_args.task_name, cache_dir=model_args.data_cache_dir)
     elif is_regression:
-        metric = evaluate.load("mse", cache_dir=model_args.cache_dir)
+        metric = evaluate.load("mse", cache_dir=model_args.data_cache_dir)
     else:
-        metric = evaluate.load("accuracy", cache_dir=model_args.cache_dir)
+        metric = evaluate.load("accuracy", cache_dir=model_args.data_cache_dir)
 
     # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a
     # predictions and label_ids field) and has to return a dictionary string to float.
@@ -680,7 +618,6 @@ def main():
                             item = label_list[item]
                             writer.write(f"{index}\t{item}\n")
 
-    # kwargs = {"model_name": "roberta-base-relu-mnli", "finetuned_from": "JeremiahZ/roberta-base-mnli", "tasks": "text-classification"}
     kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "text-classification"}
     if data_args.task_name is not None:
         kwargs["language"] = "en"

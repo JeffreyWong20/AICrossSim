@@ -13,10 +13,19 @@ python3 -m pip install -r requirements.txt
 ```
 
 
-## Fine-tuning on GLUE
-finetune_base.sh contains the script to fine-tune RoBERTa-base on GLUE tasks. The script is based on the run_glue.py script from the Hugging Face Transformers library. The script is modified to use the RoBERTa model and tokenizer.
+## Evaluation on GLUE with huggingface accelerate
+Evaluate RoBERTa-base on GLUE tasks. The script is modified to use the RoBERTa model and tokenizer.
+Accelerate provides less features as huggingface trainer but it allows us to easily make modification to the evaluation loop. This is more suitable for mase_transform.
 
 ```
-cd AICrossSim
-sh finetune_base.sh
+cd AICrossSim/new_compute_bench/no_trainer
+sh new_compute_bench.sh
+```
+
+## Evaluation on GLUE with huggingface trainer
+Evaluate RoBERTa-base on GLUE tasks. The script is modified to use the RoBERTa model and tokenizer.
+
+```
+cd AICrossSim/new_compute_bench/trainer
+sh new_compute_bench.sh
 ```
