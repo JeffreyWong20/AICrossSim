@@ -46,6 +46,11 @@ from transformers import (
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
+# =======================================
+# FIXME: Use your own config and transformation pass
+from access_mase import FIRST_STAGE_SPIKE_ZIP_TF_CONFIG, SECOND_STAGE_SPIKE_ZIP_TF_CONFIG, THIRD_STAGE_SPIKE_ZIP_TF_CONFIG, MASE_SNNWrapper
+from submodules.mase.src.chop.passes.module.transforms import ann2snn_module_transform_pass, quantize_module_transform_pass
+# =======================================
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 # HACK: MASE used a lower version, i tested it. It works fine with lower version.
@@ -316,6 +321,30 @@ def main():
     )
     model.eval()  # Set the model to evaluation mode
 
+    # ==============================================
+    # FIXME: Modified here
+    model, _ = quantize_module_transform_pass(model, FIRST_STAGE_SPIKE_ZIP_TF_CONFIG)
+    # load fine-tuned quantized weight
+    # if args.qann_pretrained is not None:
+    #     from safetensors.torch import load_file
+    #     state_dict = load_file(os.path.join(args.qann_pretrained, "model.safetensors"))
+    #     msg = model.load_state_dict(state_dict)
+    model, _ = ann2snn_module_transform_pass(model, SECOND_STAGE_SPIKE_ZIP_TF_CONFIG)
+    model, _ = ann2snn_module_transform_pass(model, THIRD_STAGE_SPIKE_ZIP_TF_CONFIG)
+    MASE_SNNWrapper(
+            ann_model=model,
+            cfg=None,
+            time_step=200,
+            Encoding_type="analog",
+            level=32,
+            model_name="roberta",
+            neuron_type="ST=BIF",
+        )
+    logger.info(
+        f"MASE Transformation is successful!"
+    )
+    # ==============================================
+
     # Preprocessing the datasets
     if args.task_name is not None:
         sentence1_key, sentence2_key = task_to_keys[args.task_name]
@@ -433,6 +462,8 @@ def main():
     logger.info(f"  Total eval batch size (w. parallel, distributed) = {total_batch_size}")
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(len(eval_dataloader)), disable=not accelerator.is_local_main_process)
+    # =======================================
+    # FIXME: Implement your own evaluation loop
     for step, batch in enumerate(eval_dataloader):
         with torch.no_grad():
             outputs = model(**batch)
@@ -471,6 +502,7 @@ def main():
         all_results = {f"eval_{k}": v for k, v in eval_metric.items()}
         with open(os.path.join(args.output_dir, "all_results.json"), "w") as f:
             json.dump(all_results, f)
+    # =======================================
 
 
 if __name__ == "__main__":
