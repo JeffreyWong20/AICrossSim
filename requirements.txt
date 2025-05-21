@@ -1,5 +1,5 @@
 git+https://github.com/huggingface/transformers
-transformers[torch]
+transformers==4.51.3
 datasets
 evaluate
 wandb
