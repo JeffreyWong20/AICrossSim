@@ -154,7 +154,9 @@ class Judger:
     def reset_network_finish_flag(self):
         self.network_finish = True
 
-
+# NOTE: This SNNWrapper is not used in the evaluation and fine-tuning process.
+# NOTE: We report the results of quantized models before converting them to SNNs.
+# NOTE: The accuracy of the SNN models should be the same as the quantized models given enough time steps than matches the bit level.
 class MASE_SNNWrapper(nn.Module):
 
     def __init__(self, ann_model, cfg, time_step=2000, Encoding_type="rate", **kwargs):

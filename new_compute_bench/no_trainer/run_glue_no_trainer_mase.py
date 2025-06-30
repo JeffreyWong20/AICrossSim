@@ -48,7 +48,7 @@ from transformers.utils.versions import require_version
 
 # =======================================
 # FIXME: Use your own config and transformation pass
-from access_mase import FIRST_STAGE_SPIKE_ZIP_TF_CONFIG, SECOND_STAGE_SPIKE_ZIP_TF_CONFIG, THIRD_STAGE_SPIKE_ZIP_TF_CONFIG, MASE_SNNWrapper
+from access_mase import FIRST_STAGE_SPIKE_ZIP_TF_CONFIG, SECOND_STAGE_SPIKE_ZIP_TF_CONFIG, THIRD_STAGE_SPIKE_ZIP_TF_CONFIG, MASE_SNNWrapper, validate
 from submodules.mase.src.chop.passes.module.transforms import ann2snn_module_transform_pass, quantize_module_transform_pass
 # =======================================
 
@@ -266,7 +266,7 @@ def main():
 
     # Load the dataset
     if args.task_name is not None:
-        raw_datasets = load_dataset("nyu-mll/glue", args.task_name, cache_dir=args.data_cache_dir)
+        raw_datasets = load_dataset("nyu-mll/glue", args.task_name)
     else:
         data_files = {}
         if args.validation_file is not None:
@@ -278,7 +278,7 @@ def main():
     if args.task_name is not None:
         is_regression = args.task_name == "stsb"
         if not is_regression:
-            label_list = raw_datasets["train"].features["label"].names  # Use train features for labels
+            label_list = raw_datasets["train"].features["label"].names
             num_labels = len(label_list)
         else:
             num_labels = 1
@@ -329,17 +329,26 @@ def main():
     #     from safetensors.torch import load_file
     #     state_dict = load_file(os.path.join(args.qann_pretrained, "model.safetensors"))
     #     msg = model.load_state_dict(state_dict)
-    model, _ = ann2snn_module_transform_pass(model, SECOND_STAGE_SPIKE_ZIP_TF_CONFIG)
-    model, _ = ann2snn_module_transform_pass(model, THIRD_STAGE_SPIKE_ZIP_TF_CONFIG)
-    MASE_SNNWrapper(
-            ann_model=model,
-            cfg=None,
-            time_step=200,
-            Encoding_type="analog",
-            level=32,
-            model_name="roberta",
-            neuron_type="ST=BIF",
-        )
+    # model, _ = ann2snn_module_transform_pass(model, SECOND_STAGE_SPIKE_ZIP_TF_CONFIG)
+    # model, _ = ann2snn_module_transform_pass(model, THIRD_STAGE_SPIKE_ZIP_TF_CONFIG)
+    # model = MASE_SNNWrapper(
+    #         ann_model=model,
+    #         cfg=None,
+    #         time_step=200,
+    #         Encoding_type="analog",
+    #         level=32,
+    #         model_name="roberta",
+    #         neuron_type="ST=BIF",
+    #         is_regression=is_regression,
+    #     )
+    # NOTE: Use 
+    # breakpoint()  # Debugging point to inspect the model after quantization
+    # model.load_state_dict(
+    #     torch.load(
+    #         "/home/thw20/projects/SpikeZIP-TF/output/Roberta-sst2-QANN-QAT-MASE-JeffreyWong-32/pytorch_model.bin",
+    #     )
+    # )
+    # breakpoint()  # Debugging point to inspect the model after quantization
     logger.info(
         f"MASE Transformation is successful!"
     )
@@ -400,6 +409,15 @@ def main():
         result = tokenizer(*texts, padding=padding, max_length=args.max_length, truncation=True)
 
         if "label" in examples:
+            # NOTE: uncomment the following lines if you want to train on MILN
+            #     # if label_to_id is not None:
+            #     #     # Map labels to IDs (not necessary for GLUE tasks)
+            #     #     result["labels"] = [label_to_id[l] for l in examples["label"]]
+            #     # else:
+            #     # #     In all cases, rename the column to labels because the model will expect that.
+            # result["labels"] = examples["label"]
+
+            # NOTE: rest of the tasks in glue
             if label_to_id is not None:
                 # Map labels to IDs (not necessary for GLUE tasks)
                 result["labels"] = [label_to_id[l] for l in examples["label"]]
@@ -412,7 +430,7 @@ def main():
         processed_datasets = raw_datasets.map(
             preprocess_function,
             batched=True,
-            remove_columns=raw_datasets["validation"].column_names,  # Use validation columns
+            remove_columns=raw_datasets["validation_matched" if args.task_name == "mnli" else "validation"].column_names,  #
             desc="Running tokenizer on dataset",
         )
 
@@ -464,8 +482,15 @@ def main():
     progress_bar = tqdm(range(len(eval_dataloader)), disable=not accelerator.is_local_main_process)
     # =======================================
     # FIXME: Implement your own evaluation loop
+    # (
+    #     _,
+    #     valid_loss,
+    #     valid_accuracy,
+    #     _,
+    # ) = validate(model, eval_dataloader, mode="SNN", target_dir=".")
     for step, batch in enumerate(eval_dataloader):
         with torch.no_grad():
+            # output, count, accu_per_timestep = model(**batch)
             outputs = model(**batch)
         predictions = outputs.logits.argmax(dim=-1) if not is_regression else outputs.logits.squeeze()
         predictions, references = accelerator.gather((predictions, batch["labels"]))
@@ -477,6 +502,7 @@ def main():
 
     eval_metric = metric.compute()
     logger.info(f"Evaluation results: {eval_metric}")
+    print(f"Evaluation results: {eval_metric}")
 
     if args.task_name == "mnli":
         # Final evaluation on mismatched validation set

@@ -1,2 +1,4 @@
 /wandb
 /ckpt
+__pycache__
+wandb
