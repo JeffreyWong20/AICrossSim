@@ -168,6 +168,7 @@ class MASE_SNNWrapper(nn.Module):
         self.model = ann_model
         self.kwargs = kwargs
         self.model_name = kwargs["model_name"]
+        self.is_regression = kwargs.get("is_regression", False)
         self.max_T = 0
         self.model_reset = None
         # self._replace_weight(self.model)
@@ -177,7 +178,9 @@ class MASE_SNNWrapper(nn.Module):
         # self.model = deepcopy(self.model_reset).cuda()
         reset_model(self)
 
-    def forward(self, seqs, masks, segments, labels, verbose=False):
+    def forward(self, input_ids, attention_mask, segments=None, labels=None, verbose=False):
+        seqs = input_ids
+        masks = attention_mask
         accu = None
         count1 = 0
         accu_per_timestep = []
@@ -213,15 +216,20 @@ class MASE_SNNWrapper(nn.Module):
             # else:
             #     print("No implementation of neuron type:",self.neuron_type)
             #     sys.exit(0)
+            # output = self.model(input_ids=seqs, attention_mask=masks, token_type_ids=segments, labels=labels)[1]
+            outputs = self.model(input_ids=seqs, attention_mask=masks, token_type_ids=segments, labels=labels)
+            if not self.is_regression:
+                predictions = outputs.logits.argmax(dim=-1)
+            else:
+                predictions = outputs.logits.squeeze()
 
-            output = self.model(seqs, masks, segments, labels)[1]
             # print(count1,output[0,0:100])
             # print(count1,"output",torch.abs(output.sum()))
 
             if count1 == 0:
-                accu = output + 0.0
+                accu = predictions + 0.0
             else:
-                accu = accu + output
+                accu = accu + predictions
             if verbose:
                 accu_per_timestep.append(accu)
             # print("accu",accu.sum(),"output",output.sum())
@@ -230,6 +238,7 @@ class MASE_SNNWrapper(nn.Module):
                 print(count1)
 
         # print("verbose",verbose)
+        breakpoint()
         if verbose:
             accu_per_timestep = torch.stack(accu_per_timestep, dim=0)
             return accu, count1, accu_per_timestep
@@ -253,7 +262,7 @@ def correct_predictions(output_probabilities, targets):
     return correct.item()
 
 
-def validate(model, dataloader, args=None):
+def validate(model, dataloader, mode, target_dir):
     """
     Compute the loss and accuracy of a model on some validation dataset.
     Args:
@@ -270,7 +279,7 @@ def validate(model, dataloader, args=None):
     """
     # Switch to evaluate mode.
     model.eval()
-    device = model.device
+    device = model.model.device
     epoch_start = time.time()
     running_loss = 0.0
     running_accuracy = 0.0
@@ -282,20 +291,24 @@ def validate(model, dataloader, args=None):
     max_T = 0
     # Deactivate autograd for evaluation.
     with torch.no_grad():
-        for batch_seqs, batch_seq_masks, batch_seq_segments, batch_labels in tqdm(
-            dataloader
-        ):
+        # for batch_seqs, batch_seq_masks, batch_seq_segments, batch_labels in tqdm(
+        #     dataloader
+        # ):
+        for step, batch in enumerate(dataloader):
             # Move input and output data to the GPU if one is used.
-            seqs = batch_seqs.to(device)
+            seqs = batch["input_ids"].to(device)
             total_num = total_num + seqs.shape[0]
-            masks = batch_seq_masks.to(device)
-            segments = batch_seq_segments.to(device)
-            labels = batch_labels.to(device)
-            if args.mode == "SNN":
+            masks = batch["attention_mask"].to(device)
+            segments = batch.get("token_type_ids", None)
+            if segments is not None:
+                segments = segments.to(device)
+            labels = batch["labels"].to(device)
+            if mode == "SNN":
                 output, count, accu_per_timestep = model(seqs, masks, segments, labels, verbose=True)
                 # print(accu_per_timestep.shape, count)
                 max_T = max(max_T, count)
                 print(max_T)
+                breakpoint()
                 if accu_per_timestep.shape[0] < max_T:
                     padding_per_timestep = accu_per_timestep[-1].unsqueeze(0)
                     padding_length = max_T - accu_per_timestep.shape[0]
@@ -330,7 +343,7 @@ def validate(model, dataloader, args=None):
                 running_loss += loss.item()
                 running_accuracy += correct_predictions(probabilities, labels)
                 all_prob.extend(probabilities[:, 1].cpu().numpy())
-                all_labels.extend(batch_labels)
+                all_labels.extend(labels)
                 acc_per_timestep_all = []
                 for i in range(len(correct_per_timestep_all)):
                     acc_per_timestep_all.append(
@@ -344,11 +357,11 @@ def validate(model, dataloader, args=None):
                 running_loss += loss.item()
                 running_accuracy += correct_predictions(probabilities, labels)
                 all_prob.extend(probabilities[:, 1].cpu().numpy())
-                all_labels.extend(batch_labels)
+                all_labels.extend(labels)
     epoch_time = time.time() - epoch_start
     epoch_loss = running_loss / len(dataloader)
     epoch_accuracy = running_accuracy / (len(dataloader.dataset))
-    f = open(f"{args.target_dir}/accuracy_per_timestep.txt", "w+")
+    f = open(f"{target_dir}/accuracy_per_timestep.txt", "w+")
     for i in range(len(correct_per_timestep_all)):
         f.write(
             f"T={i}, acc={correct_per_timestep_all[i]/len(dataloader.dataset) * 100}%\n"
